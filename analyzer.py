@@ -98,6 +98,7 @@ class AnalysisResult:
     # ========== 元数据 ==========
     raw_response: Optional[str] = None  # 原始响应（调试用）
     search_performed: bool = False  # 是否执行了联网搜索
+    search_results: Optional[Dict[str, Any]] = None  # 搜索结果数据
     data_sources: str = ""  # 数据来源说明
     success: bool = True
     error_message: Optional[str] = None

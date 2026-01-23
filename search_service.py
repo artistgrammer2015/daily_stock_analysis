@@ -624,6 +624,13 @@ class SearchService:
             
             if response.success and response.results:
                 logger.info(f"使用 {provider.name} 搜索成功")
+
+                # 打印搜索结果的标题和URL
+                logger.info(f"[{stock_name}] 股票新闻搜索结果:")
+                for i, result in enumerate(response.results, 1):
+                    logger.info(f"  {i}. 📄 {result.title}")
+                    logger.info(f"     🔗 {result.url}")
+
                 return response
             else:
                 logger.warning(f"{provider.name} 搜索失败: {response.error_message}，尝试下一个引擎")
@@ -673,6 +680,13 @@ class SearchService:
             response = provider.search(query, max_results=5)
             
             if response.success:
+                # 打印搜索结果的标题和URL
+                if response.results:
+                    logger.info(f"[{stock_name}] 股票事件搜索结果:")
+                    for i, result in enumerate(response.results, 1):
+                        logger.info(f"  {i}. 📄 {result.title}")
+                        logger.info(f"     🔗 {result.url}")
+
                 return response
         
         return SearchResponse(
@@ -752,6 +766,14 @@ class SearchService:
             
             if response.success:
                 logger.info(f"[情报搜索] {dim['desc']}: 获取 {len(response.results)} 条结果")
+
+                # 打印搜索结果的标题和URL
+                if response.results:
+                    logger.info(f"[情报搜索] {dim['desc']} 搜索结果:")
+                    for i, result in enumerate(response.results, 1):
+                        logger.info(f"  {i}. 📄 {result.title}")
+                        logger.info(f"     🔗 {result.url}")
+
             else:
                 logger.warning(f"[情报搜索] {dim['desc']}: 搜索失败 - {response.error_message}")
             
@@ -781,7 +803,8 @@ class SearchService:
                 for i, r in enumerate(resp.results[:3], 1):
                     date_str = f" [{r.published_date}]" if r.published_date else ""
                     lines.append(f"  {i}. {r.title}{date_str}")
-                    lines.append(f"     {r.snippet[:100]}...")
+                    lines.append(f"     📄 {r.snippet[:100]}...")
+                    lines.append(f"     🔗 {r.url}")
             else:
                 lines.append("  未找到相关消息")
         
@@ -792,7 +815,8 @@ class SearchService:
             if resp.success and resp.results:
                 for i, r in enumerate(resp.results[:3], 1):
                     lines.append(f"  {i}. {r.title}")
-                    lines.append(f"     {r.snippet[:100]}...")
+                    lines.append(f"     📄 {r.snippet[:100]}...")
+                    lines.append(f"     🔗 {r.url}")
             else:
                 lines.append("  未发现明显风险信号")
         
@@ -803,7 +827,8 @@ class SearchService:
             if resp.success and resp.results:
                 for i, r in enumerate(resp.results[:3], 1):
                     lines.append(f"  {i}. {r.title}")
-                    lines.append(f"     {r.snippet[:100]}...")
+                    lines.append(f"     📄 {r.snippet[:100]}...")
+                    lines.append(f"     🔗 {r.url}")
             else:
                 lines.append("  未找到业绩相关信息")
         

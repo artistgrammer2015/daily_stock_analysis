@@ -524,7 +524,44 @@ class NotificationService:
                     report_lines.append(f"**📢 最新动态**: {intel['latest_news']}")
                 
                 report_lines.append("")
-            
+
+            # ========== 搜索结果（标题+URL）==========
+            if hasattr(result, 'search_results') and result.search_results:
+                report_lines.extend([
+                    "### 🔍 搜索结果",
+                    "",
+                ])
+
+                # 显示最新消息搜索结果
+                if 'latest_news' in result.search_results:
+                    resp = result.search_results['latest_news']
+                    if resp.success and resp.results:
+                        report_lines.append("📰 **最新消息**:")
+                        for i, r in enumerate(resp.results[:3], 1):
+                            report_lines.append(f"  {i}. {r.title}")
+                            report_lines.append(f"     {r.url}")
+                        report_lines.append("")
+
+                # 显示风险排查搜索结果
+                if 'risk_check' in result.search_results:
+                    resp = result.search_results['risk_check']
+                    if resp.success and resp.results:
+                        report_lines.append("⚠️ **风险排查**:")
+                        for i, r in enumerate(resp.results[:2], 1):
+                            report_lines.append(f"  {i}. {r.title}")
+                            report_lines.append(f"     {r.url}")
+                        report_lines.append("")
+
+                # 显示业绩预期搜索结果
+                if 'earnings' in result.search_results:
+                    resp = result.search_results['earnings']
+                    if resp.success and resp.results:
+                        report_lines.append("📊 **业绩预期**:")
+                        for i, r in enumerate(resp.results[:2], 1):
+                            report_lines.append(f"  {i}. {r.title}")
+                            report_lines.append(f"     {r.url}")
+                        report_lines.append("")
+
             # ========== 核心结论 ==========
             core = dashboard.get('core_conclusion', {}) if dashboard else {}
             one_sentence = core.get('one_sentence', result.analysis_summary)
@@ -979,7 +1016,45 @@ class NotificationService:
         
         if info_added:
             lines.append("")
-        
+
+        # 搜索结果（标题+URL）
+        if hasattr(result, 'search_results') and result.search_results:
+            lines.extend([
+                "### 🔍 搜索结果",
+                "",
+            ])
+
+            # 显示最新消息搜索结果
+            if 'latest_news' in result.search_results:
+                resp = result.search_results['latest_news']
+                if resp.success and resp.results:
+                    lines.append("📰 **最新消息**:")
+                    for i, r in enumerate(resp.results[:3], 1):
+                        lines.append(f"  {i}. {r.title}")
+                        lines.append(f"     {r.url}")
+
+            # 显示风险排查搜索结果
+            if 'risk_check' in result.search_results:
+                resp = result.search_results['risk_check']
+                if resp.success and resp.results:
+                    lines.append("")
+                    lines.append("⚠️ **风险排查**:")
+                    for i, r in enumerate(resp.results[:2], 1):
+                        lines.append(f"  {i}. {r.title}")
+                        lines.append(f"     {r.url}")
+
+            # 显示业绩预期搜索结果
+            if 'earnings' in result.search_results:
+                resp = result.search_results['earnings']
+                if resp.success and resp.results:
+                    lines.append("")
+                    lines.append("📊 **业绩预期**:")
+                    for i, r in enumerate(resp.results[:2], 1):
+                        lines.append(f"  {i}. {r.title}")
+                        lines.append(f"     {r.url}")
+
+            lines.append("")
+
         # 狙击点位
         sniper = battle.get('sniper_points', {}) if battle else {}
         if sniper:

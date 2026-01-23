@@ -321,7 +321,11 @@ class StockAnalysisPipeline:
             
             # Step 7: 调用 AI 分析（传入增强的上下文和新闻）
             result = self.analyzer.analyze(enhanced_context, news_context=news_context)
-            
+
+            # 将搜索结果保存到分析结果中（用于Telegram消息显示）
+            if result and intel_results:
+                result.search_results = intel_results
+
             return result
             
         except Exception as e:
