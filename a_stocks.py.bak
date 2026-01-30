@@ -546,7 +546,7 @@ def get_stock_info_dict(force_refresh=False):
         logger.info(f"   有效期: {CACHE_DAYS} 天")
     
     if force_refresh:
-        logger.info("\n⚡ 强制刷新缓存...")
+        print("\n⚡ 强制刷新缓存...")
         stock_info = fetch_stock_info_from_api()
         if stock_info:
             save_stock_info_to_cache(stock_info)
@@ -557,7 +557,7 @@ def get_stock_info_dict(force_refresh=False):
         if stock_info:
             return stock_info
     
-    logger.info("\n🌐 从API获取最新数据...")
+    print("\n🌐 从API获取最新数据...")
     stock_info = fetch_stock_info_from_api()
     
     if stock_info:
@@ -824,35 +824,15 @@ def send_sector_fund_flow_message(df, stock_info_dict, indicator='今日', secto
             message_lines.append("")
         
         message = "\n".join(message_lines)
-
-        # 打印发送的消息内容（用于调试）
-        logger.info("=" * 60)
-        logger.info(f"📤 准备发送到Telegram: [{indicator}] {sector_type}")
-        logger.info("=" * 60)
-        logger.info(f"消息长度: {len(message)} 字符")
-
-        # 如果消息太长，只打印前500和后500字符
-        if len(message) > 1000:
-            logger.info("消息内容（前500字符）:")
-            logger.info(message[:500])
-            logger.info("...")
-            logger.info("消息内容（后500字符）:")
-            logger.info(message[-500:])
-        else:
-            logger.info("完整消息内容:")
-            logger.info(message)
-
-        logger.info("=" * 60)
-
+        
         # ⭐ 添加解析总结
         if collect_top_stocks:
-            logger.info(f"📊 领涨股收集总结:")
+            print(f"\n📊 领涨股收集总结:")
             logger.info(f"   成功收集: {len(top_stocks_collected)} 只")
             if len(top_stocks_collected) < 10:
                 logger.info(f"   ⚠️  预期10只，实际{len(top_stocks_collected)}只（可能原因：数据缺失、解析失败或重复股票）")
-
+        
         if len(message) > 4000:
-            logger.info("⚠️  消息过长，使用分段发送")
             items = []
             for idx, row in df.iterrows():
                 name = str(row.get('名称', row.get('name', '')))
@@ -896,7 +876,7 @@ def send_sector_fund_flow_message(df, stock_info_dict, indicator='今日', secto
         # ⭐ 只在收集了领涨股时才写入.env文件
         if collect_top_stocks and top_stocks_collected:
             try:
-                logger.info(f"\n📝 开始更新 .env 文件...")
+                print(f"\n📝 开始更新 .env 文件...")
                 logger.info(f"   从前10名板块收集到 {len(top_stocks_collected)} 只领涨股")
                 
                 env_path = Path(__file__).parent / '.env'
@@ -962,124 +942,6 @@ def send_sector_fund_flow_message(df, stock_info_dict, indicator='今日', secto
 
 
 
-def get_and_send_market_review_stats():
-    """获取并发送市场复盘统计数据（最近5个交易日）
-
-    说明：
-    - 一次性请求最近5个交易日的数据
-    - API按天返回，每个交易日一条数据
-    - 将所有数据格式化后一起发送到Telegram
-    """
-    try:
-        logger.info("\n" + "="*60)
-        logger.info("📊 获取市场复盘统计数据")
-        logger.info("="*60)
-
-        # 计算最近5个交易日的日期范围（排除今天和周末）
-        trading_days = []
-        current = datetime.today() - timedelta(days=1)  # 从昨天开始
-
-        # 向前查找5个交易日（最多查找15天）
-        max_search_days = 15
-        for _ in range(max_search_days):
-            # weekday(): 0=周一, ..., 4=周五, 5=周六, 6=周日
-            if current.weekday() < 5:  # 不是周末
-                trading_days.append(current)
-                if len(trading_days) == 5:
-                    break
-            current -= timedelta(days=1)
-
-        if len(trading_days) < 5:
-            logger.warning(f"⚠️  无法找到足够的交易日（需要5个，找到{len(trading_days)}个）")
-
-        if not trading_days:
-            logger.error("❌ 无法找到任何交易日")
-            return
-
-        # 构建日期范围：从最早的交易日到最近的交易日
-        start_date = trading_days[-1].strftime('%Y-%m-%d')  # 最早的交易日（5天前）
-        end_date = trading_days[0].strftime('%Y-%m-%d')     # 最近的交易日（昨天）
-
-        # 构建API URL（一次性请求5个交易日的数据）
-        url = f"https://aiwuchuan.com/api/review-stats?start={start_date}&end={end_date}"
-        logger.info(f"📡 请求API: {url}")
-        logger.info(f"   日期范围: {start_date} 至 {end_date} (预计5个交易日)")
-
-        # 请求数据
-        response = requests.get(url, timeout=30)
-        response.raise_for_status()
-        data = response.json()
-
-        if not data or len(data) == 0:
-            logger.warning("⚠️  未获取到市场复盘数据")
-            return
-
-        logger.info(f"✅ 获取到 {len(data)} 条记录")
-
-        # 格式化所有交易日的数据
-        message_parts = []
-
-        for idx, day_data in enumerate(data):
-            date = day_data.get('日期', 'N/A')
-            up_count = day_data.get('涨停家数', 'N/A')
-            down_count = day_data.get('跌停家数', 'N/A')
-            decline_count = day_data.get('全市场下跌家数', 'N/A')
-            above_ma5_ratio = day_data.get('高于5日线占比', 'N/A')
-            volume = day_data.get('沪深成交额_万亿元', 'N/A')
-            max_board = day_data.get('最高板', 'N/A')
-
-            # 大中微盘股数据
-            large_cap_ratio = day_data.get('大盘股高于5日线', 'N/A')
-            mid_cap_ratio = day_data.get('中盘股高于5日线', 'N/A')
-            small_cap_ratio = day_data.get('微盘股高于5日线', 'N/A')
-
-            # 连板数据
-            three_board = day_data.get('三板', 'N/A')
-            four_board = day_data.get('四板', 'N/A')
-            five_board = day_data.get('五板及以上', 'N/A')
-
-            logger.info(f"  📌 第{idx+1}个交易日: {date}")
-
-            # 为每天构建消息段
-            msg = f"""*📊 {date} 市场复盘*
-
-📈 涨停: {up_count}只 | 跌停: {down_count}只 | 下跌: {decline_count}只
-📊 高于5日线: {above_ma5_ratio} (大盘: {large_cap_ratio} | 中盘: {mid_cap_ratio} | 微盘: {small_cap_ratio})
-💰 成交额: {volume}万亿
-🎯 最高板: {max_board}板 | 三板: {three_board}只 | 四板: {four_board}只 | 五板+: {five_board}只
-"""
-            message_parts.append(msg)
-
-        if not message_parts:
-            logger.warning("⚠️  没有有效的市场复盘数据可发送")
-            return
-
-        # 添加标题和分隔线
-        header = f"*📊 最近{len(message_parts)}个交易日市场复盘*\n" + "─" * 30 + "\n"
-        full_message = header + "\n".join(message_parts)
-
-        # 打印消息内容
-        logger.info("=" * 60)
-        logger.info("📤 准备发送市场复盘统计到Telegram")
-        logger.info("=" * 60)
-        logger.info(f"消息长度: {len(full_message)} 字符")
-        logger.info("完整消息内容:")
-        logger.info(full_message)
-        logger.info("=" * 60)
-
-        # 发送到Telegram
-        send_telegram(full_message)
-
-        logger.info("✅ 市场复盘统计已发送到Telegram")
-
-    except requests.exceptions.RequestException as e:
-        logger.error(f"❌ 获取市场复盘数据失败（网络错误）: {str(e)[:100]}")
-    except Exception as e:
-        logger.error(f"❌ 处理市场复盘数据失败: {str(e)[:100]}")
-        import traceback
-        traceback.print_exc()
-
-
 def get_continuous_limit_up_stocks(stock_info_dict):
     """获取连续两个交易日涨停的股票（不获取成交量）"""
     try:
@@ -1135,7 +997,7 @@ def get_continuous_limit_up_stocks(stock_info_dict):
                     })
         
         if len(zt_data_list) < 2:
-            logger.info("\n❌ 无法获取足够的涨停板数据")
+            print("\n❌ 无法获取足够的涨停板数据")
             return {}, None
         
         zt_data_list.sort(key=lambda x: x['date'], reverse=True)
@@ -1145,7 +1007,7 @@ def get_continuous_limit_up_stocks(stock_info_dict):
         
         continuous_codes = day1['codes'].intersection(day2['codes'])
         
-        logger.info(f"\n{'='*60}")
+        print(f"\n{'='*60}")
         logger.info("📈 连续涨停统计结果:")
         logger.info("="*60)
         logger.info(f"{day2['date_display']}: {len(day2['codes'])} 只涨停")
@@ -1268,36 +1130,16 @@ def send_continuous_limit_up_message(sector_groups, zt_data_list, market_stats):
             message_lines.append("")
         
         message = "\n".join(message_lines)
-
-        # 打印发送的消息内容（用于调试）
-        logger.info("=" * 60)
-        logger.info("📤 准备发送到Telegram的消息内容:")
-        logger.info("=" * 60)
-        logger.info(f"消息长度: {len(message)} 字符")
-
-        # 如果消息太长，只打印前500和后500字符
-        if len(message) > 1000:
-            logger.info("消息内容（前500字符）:")
-            logger.info(message[:500])
-            logger.info("...")
-            logger.info("消息内容（后500字符）:")
-            logger.info(message[-500:])
-        else:
-            logger.info("完整消息内容:")
-            logger.info(message)
-
-        logger.info("=" * 60)
-
+        
         if len(message) > 4000:
-            logger.info("⚠️  消息过长，使用分段发送")
             send_long_message(
-                f"📊 连续两日涨停个股 ({total_count}只)",
+                f"📊 连续两日涨停个股 ({total_count}只)", 
                 [f"{s['code']} {s['name']}" for _, stocks in sorted_sectors for s in stocks],
                 ""
             )
         else:
             send_telegram(message)
-
+        
         logger.info("✅ 已发送连续涨停消息到Telegram")
         
     except Exception as e:
@@ -1309,61 +1151,22 @@ def get_sector_fund_flow_example(stock_info_dict):
     logger.info("\n" + "="*60)
     logger.info("💰 板块资金流入排行榜")
     logger.info("="*60)
-
-    success_count = 0
-    fail_count = 0
-
-    # 今日 - 收集领涨股
-    try:
-        df1 = get_sector_fund_flow_rank(indicator='今日', sector_type='概念资金流', top_n=20)
-        if df1 is not None and not df1.empty:
-            send_sector_fund_flow_message(df1, stock_info_dict, indicator='今日', sector_type='概念资金流', collect_top_stocks=True)
-            logger.info("✅ [今日] 板块资金流已发送到Telegram")
-            success_count += 1
-        else:
-            logger.warning("⚠️  [今日] 板块资金流数据获取失败，跳过发送")
-            fail_count += 1
-    except Exception as e:
-        logger.error(f"❌ [今日] 板块资金流处理失败: {str(e)[:100]}")
-        fail_count += 1
-
-    # ⭐ 增加间隔时间，避免API限流（同一接口连续请求会被限制）
-    logger.info("⏳ 等待30秒后获取5日数据（避免API限流）...")
-    time.sleep(30)
-
-    # 5日
-    try:
-        df2 = get_sector_fund_flow_rank(indicator='5日', sector_type='概念资金流', top_n=20)
-        if df2 is not None and not df2.empty:
-            send_sector_fund_flow_message(df2, stock_info_dict, indicator='5日', sector_type='概念资金流', collect_top_stocks=False)
-            logger.info("✅ [5日] 板块资金流已发送到Telegram")
-            success_count += 1
-        else:
-            logger.warning("⚠️  [5日] 板块资金流数据获取失败（可能是API限流），跳过发送")
-            fail_count += 1
-    except Exception as e:
-        logger.error(f"❌ [5日] 板块资金流处理失败: {str(e)[:100]}")
-        fail_count += 1
-
-    # ⭐ 再次增加间隔时间
-    logger.info("⏳ 等待30秒后获取10日数据（避免API限流）...")
-    time.sleep(30)
-
-    # 10日
-    try:
-        df3 = get_sector_fund_flow_rank(indicator='10日', sector_type='概念资金流', top_n=20)
-        if df3 is not None and not df3.empty:
-            send_sector_fund_flow_message(df3, stock_info_dict, indicator='10日', sector_type='概念资金流', collect_top_stocks=False)
-            logger.info("✅ [10日] 板块资金流已发送到Telegram")
-            success_count += 1
-        else:
-            logger.warning("⚠️  [10日] 板块资金流数据获取失败（可能是API限流），跳过发送")
-            fail_count += 1
-    except Exception as e:
-        logger.error(f"❌ [10日] 板块资金流处理失败: {str(e)[:100]}")
-        fail_count += 1
-
-    logger.info(f"📊 板块资金流排行榜处理完成: 成功 {success_count}/3, 失败 {fail_count}/3")
+    
+    # ⭐ 只在"今日"时收集领涨股
+    df1 = get_sector_fund_flow_rank(indicator='今日', sector_type='概念资金流', top_n=20)
+    if df1 is not None and not df1.empty:
+        send_sector_fund_flow_message(df1, stock_info_dict, indicator='今日', sector_type='概念资金流', collect_top_stocks=True)
+    
+    # 5日和10日不收集
+    df2 = get_sector_fund_flow_rank(indicator='5日', sector_type='概念资金流', top_n=20)
+    if df2 is not None and not df2.empty:
+        send_sector_fund_flow_message(df2, stock_info_dict, indicator='5日', sector_type='概念资金流', collect_top_stocks=False)
+    
+    df3 = get_sector_fund_flow_rank(indicator='10日', sector_type='概念资金流', top_n=20)
+    if df3 is not None and not df3.empty:
+        send_sector_fund_flow_message(df3, stock_info_dict, indicator='10日', sector_type='概念资金流', collect_top_stocks=False)
+    
+    logger.info("✅ 板块资金流排行榜获取完成！")
 
 
 def main_scan(force_refresh_cache=False):
@@ -1388,42 +1191,26 @@ def main_scan(force_refresh_cache=False):
     if is_weekend(today):
         logger.warning(f"  今天是{['周一','周二','周三','周四','周五','周六','周日'][today.weekday()]}，周末没有交易数据")
         return
-
-    # 1. 获取并发送市场复盘统计（1日、5日、10日）
-    try:
-        get_and_send_market_review_stats()
-    except Exception as e:
-        logger.error(f"❌ 市场复盘统计失败: {str(e)[:100]}")
-        logger.info("  ℹ️  跳过市场复盘统计，继续执行其他任务...")
-
-    # 2. 获取股票基本信息（使用缓存）
+    
+    # 1. 获取股票基本信息（使用缓存）
     stock_info_dict = get_stock_info_dict(force_refresh=force_refresh_cache)
     if not stock_info_dict:
         logger.error(f" 无法获取股票信息，程序终止")
         return
-
-    # 3. 获取全市场涨跌平统计（允许失败）
-    market_stats = None
-    try:
-        market_stats = get_market_stats()
-        if market_stats:
-            logger.info(f"✅ 市场统计获取成功")
-        else:
-            logger.warning(f"⚠️  市场统计获取失败，但继续执行其他任务...")
-    except Exception as e:
-        logger.error(f"❌ 市场统计获取异常: {str(e)[:100]}")
-        logger.info("  ℹ️  跳过市场统计，继续执行其他任务...")
-
-    # 4. 统计连续涨停个股
+    
+    # 2. 获取全市场涨跌平统计
+    market_stats = get_market_stats()
+    
+    # 3. 统计连续涨停个股
     sector_groups, zt_data_list = get_continuous_limit_up_stocks(stock_info_dict)
-
+    
     if sector_groups and zt_data_list:
         send_continuous_limit_up_message(sector_groups, zt_data_list, market_stats)
-
-    # 5. 获取板块资金流排行榜（传入stock_info_dict）
+    
+    # 4. 获取板块资金流排行榜（传入stock_info_dict）
     get_sector_fund_flow_example(stock_info_dict)
     
-    logger.info("\n🎉 任务完成！")
+    print("\n🎉 任务完成！")
 
 
 if __name__ == "__main__":
@@ -1448,7 +1235,7 @@ if __name__ == "__main__":
             init_cache_db()
             cache_info = get_cache_info()
             if cache_info:
-                logger.info("\n📂 缓存信息:")
+                print("\n📂 缓存信息:")
                 logger.info(f"   股票数量: {cache_info['stock_count']}")
                 if cache_info['metadata'].get('last_update'):
                     last_update = cache_info['metadata']['last_update']['updated_at']
@@ -1462,8 +1249,8 @@ if __name__ == "__main__":
         main_scan(force_refresh_cache=args.refresh_cache)
         
     except KeyboardInterrupt:
-        logger.info("\n\n⚠️  用户中断程序")
+        print("\n\n⚠️  用户中断程序")
     except Exception as e:
-        logger.info(f"\n\n❌ 程序异常退出: {e}")
+        print(f"\n\n❌ 程序异常退出: {e}")
         import traceback
         traceback.print_exc()
