@@ -1080,6 +1080,241 @@ def get_and_send_market_review_stats():
         traceback.print_exc()
 
 
+def monitor_stock_negative_news():
+    """监控个股利空消息（具体公司事件）
+
+    使用 Tavily 或 SerpAPI 搜索个股的重大利空事件，并发送到Telegram
+
+    监控范围：
+    - 监管调查、处罚
+    - 业绩暴雷、财务造假
+    - 高管变动、被捕
+    - 重大诉讼、破产
+    - 资产重组、接管
+    - ST/退市风险
+    """
+    try:
+        logger.info("\n" + "="*60)
+        logger.info("📰 监控个股利空消息")
+        logger.info("="*60)
+
+        # 从配置加载 API Keys
+        try:
+            from config import get_config
+            config = get_config()
+            tavily_keys = config.tavily_api_keys
+            serpapi_keys = config.serpapi_keys
+        except ImportError:
+            logger.warning("⚠️  未找到 config.py，跳过利空消息监控")
+            return
+
+        if not tavily_keys and not serpapi_keys:
+            logger.warning("⚠️  未配置 Tavily 或 SerpAPI Keys，跳过利空消息监控")
+            return
+
+        # 定义搜索关键词（针对个股利空事件）
+        # 使用更精准的关键词，过滤掉大盘新闻
+        search_queries = [
+            # 监管和法律
+            "上市公司 证监会 立案调查",
+            "上市公司 SEC 调查",
+            "公司 被处罚 最新",
+            "董事长 被查 逮捕",
+
+            # 财务问题
+            "公司 业绩暴雷 预亏",
+            "公司 财务造假 退市",
+            "公司 债务违约 破产",
+
+            # 重大变故
+            "公司 被接管 重组",
+            "公司 ST 退市警示",
+            "公司 高管 辞职 跑路",
+
+            # 美股个股
+            "UNH investigation federal",
+            "stock SEC charges fraud",
+            "company bankruptcy filing",
+        ]
+
+        all_news = []  # 存储所有搜索结果
+
+        # 优先使用 Tavily（更适合实时新闻）
+        if tavily_keys:
+            try:
+                from tavily import TavilyClient
+
+                client = TavilyClient(api_key=tavily_keys[0])
+                logger.info(f"✅ 使用 Tavily 搜索引擎")
+
+                for idx, query in enumerate(search_queries[:6], 1):  # 限制前6个查询
+                    try:
+                        logger.info(f"\n🔍 [{idx}/6] 查询: {query}")
+
+                        # Tavily 搜索（max_results=5，获取更多结果）
+                        response = client.search(
+                            query=query,
+                            search_depth="basic",
+                            max_results=5,
+                            days=3,  # 搜索最近3天的新闻
+                        )
+
+                        if response and 'results' in response:
+                            for result in response['results']:
+                                title = result.get('title', '')
+                                content = result.get('content', '')
+
+                                # 过滤：标题必须包含公司名称或股票代码
+                                # 排除纯大盘新闻
+                                if any(keyword in title.lower() for keyword in ['指数', '大盘', '市场整体', '板块', 'market index', 'dow jones', 'nasdaq', 's&p 500']):
+                                    continue
+
+                                news_item = {
+                                    'title': title,
+                                    'snippet': content[:300],  # 保留更多上下文
+                                    'url': result.get('url', ''),
+                                    'published_date': result.get('published_date', ''),
+                                }
+                                all_news.append(news_item)
+                                logger.info(f"      ✓ {title[:60]}...")
+
+                        time.sleep(2)  # API 限流保护
+
+                    except Exception as e:
+                        logger.warning(f"      ⚠️  查询失败: {str(e)[:50]}")
+                        continue
+
+            except ImportError:
+                logger.warning("⚠️  未安装 tavily-python，尝试使用 SerpAPI")
+                tavily_keys = None  # 标记为不可用
+
+        # 如果 Tavily 不可用，使用 SerpAPI
+        if not tavily_keys and serpapi_keys:
+            try:
+                from serpapi import GoogleSearch
+
+                logger.info(f"✅ 使用 SerpAPI 搜索引擎")
+
+                for idx, query in enumerate(search_queries[:6], 1):  # 限制前6个查询
+                    try:
+                        logger.info(f"\n🔍 [{idx}/6] 查询: {query}")
+
+                        params = {
+                            "q": query,
+                            "api_key": serpapi_keys[0],
+                            "num": 5,  # 获取5条结果
+                            "tbm": "nws",  # 新闻搜索
+                            "tbs": "qdr:w",  # 最近1周
+                        }
+
+                        search = GoogleSearch(params)
+                        results = search.get_dict()
+
+                        if 'news_results' in results:
+                            for result in results['news_results']:
+                                title = result.get('title', '')
+
+                                # 过滤大盘新闻
+                                if any(keyword in title.lower() for keyword in ['指数', '大盘', '市场整体', '板块', 'market index']):
+                                    continue
+
+                                news_item = {
+                                    'title': title,
+                                    'snippet': result.get('snippet', '')[:300],
+                                    'url': result.get('link', ''),
+                                    'published_date': result.get('date', ''),
+                                }
+                                all_news.append(news_item)
+                                logger.info(f"      ✓ {title[:60]}...")
+
+                        time.sleep(2)  # API 限流保护
+
+                    except Exception as e:
+                        logger.warning(f"      ⚠️  查询失败: {str(e)[:50]}")
+                        continue
+
+            except ImportError:
+                logger.error("❌ 未安装 google-search-results，无法使用 SerpAPI")
+                return
+
+        # 如果没有找到任何消息
+        if not all_news:
+            logger.info("✅ 未发现明显利空消息")
+            return
+
+        # 去重（根据标题）
+        seen_titles = set()
+        unique_news = []
+        for news in all_news:
+            if news['title'] not in seen_titles:
+                seen_titles.add(news['title'])
+                unique_news.append(news)
+
+        logger.info(f"\n📊 共找到 {len(unique_news)} 条个股利空消息")
+
+        # 构建 Telegram 消息
+        message_parts = [f"*⚠️ 个股利空消息监控*\n_{datetime.today().strftime('%Y-%m-%d')}_\n"]
+        message_parts.append(f"共发现 {len(unique_news)} 条重大利空事件\n")
+
+        # 显示所有利空消息（最多10条）
+        for idx, news in enumerate(unique_news[:10], 1):
+            title = news['title']
+            snippet = news['snippet']
+            url = news['url']
+            date = news.get('published_date', '')
+
+            # 清理标题和URL中的特殊字符
+            # Telegram Markdown 链接语法：[显示文本](URL)
+            # 标题中不能有 [ ] 等特殊字符
+            title_clean = title.replace('[', '(').replace(']', ')').replace('*', '').replace('_', '')
+
+            # 限制标题长度，避免太长
+            if len(title_clean) > 100:
+                title_clean = title_clean[:97] + "..."
+
+            msg = f"\n{idx}\\. {title_clean}"
+            msg += f"\n🔗 {url}"
+
+            if date:
+                msg += f"\n🕐 {date}"
+
+            if snippet:
+                # 清理摘要中的特殊字符，但保留中文
+                snippet_clean = snippet.replace('*', '').replace('_', '').replace('[', '').replace(']', '')
+                # 限制长度
+                if len(snippet_clean) > 200:
+                    snippet_clean = snippet_clean[:197] + "..."
+                msg += f"\n💬 {snippet_clean}"
+
+            message_parts.append(msg)
+
+        full_message = "\n".join(message_parts)
+
+        # 检查消息长度（Telegram 限制 4096 字符）
+        if len(full_message) > 4000:
+            logger.warning(f"⚠️  消息过长 ({len(full_message)} 字符)，将截断")
+            full_message = full_message[:3900] + "\n\n...(消息过长，已截断)"
+
+        # 打印消息内容
+        logger.info("=" * 60)
+        logger.info("📤 准备发送利空消息到Telegram")
+        logger.info("=" * 60)
+        logger.info(f"消息长度: {len(full_message)} 字符")
+        logger.info("完整消息内容:")
+        logger.info(full_message)
+        logger.info("=" * 60)
+
+        # 发送到Telegram
+        send_telegram(full_message)
+
+        logger.info("✅ 利空消息已发送到Telegram")
+
+    except Exception as e:
+        logger.error(f"❌ 利空消息监控失败: {str(e)[:100]}")
+        import traceback
+        traceback.print_exc()
+
+
 def get_continuous_limit_up_stocks(stock_info_dict):
     """获取连续两个交易日涨停的股票（不获取成交量）"""
     try:
@@ -1389,20 +1624,27 @@ def main_scan(force_refresh_cache=False):
         logger.warning(f"  今天是{['周一','周二','周三','周四','周五','周六','周日'][today.weekday()]}，周末没有交易数据")
         return
 
-    # 1. 获取并发送市场复盘统计（1日、5日、10日）
+    # 1. 获取并发送市场复盘统计（最近5个交易日）
     try:
         get_and_send_market_review_stats()
     except Exception as e:
         logger.error(f"❌ 市场复盘统计失败: {str(e)[:100]}")
         logger.info("  ℹ️  跳过市场复盘统计，继续执行其他任务...")
 
-    # 2. 获取股票基本信息（使用缓存）
+    # 2. 监控个股利空消息
+    try:
+        monitor_stock_negative_news()
+    except Exception as e:
+        logger.error(f"❌ 个股利空消息监控失败: {str(e)[:100]}")
+        logger.info("  ℹ️  跳过利空消息监控，继续执行其他任务...")
+
+    # 3. 获取股票基本信息（使用缓存）
     stock_info_dict = get_stock_info_dict(force_refresh=force_refresh_cache)
     if not stock_info_dict:
         logger.error(f" 无法获取股票信息，程序终止")
         return
 
-    # 3. 获取全市场涨跌平统计（允许失败）
+    # 4. 获取全市场涨跌平统计（允许失败）
     market_stats = None
     try:
         market_stats = get_market_stats()
@@ -1414,15 +1656,15 @@ def main_scan(force_refresh_cache=False):
         logger.error(f"❌ 市场统计获取异常: {str(e)[:100]}")
         logger.info("  ℹ️  跳过市场统计，继续执行其他任务...")
 
-    # 4. 统计连续涨停个股
+    # 5. 统计连续涨停个股
     sector_groups, zt_data_list = get_continuous_limit_up_stocks(stock_info_dict)
 
     if sector_groups and zt_data_list:
         send_continuous_limit_up_message(sector_groups, zt_data_list, market_stats)
 
-    # 5. 获取板块资金流排行榜（传入stock_info_dict）
+    # 6. 获取板块资金流排行榜（传入stock_info_dict）
     get_sector_fund_flow_example(stock_info_dict)
-    
+
     logger.info("\n🎉 任务完成！")
 
 
